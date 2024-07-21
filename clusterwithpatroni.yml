@@ -1,0 +1,102 @@
+How to Create a PostgreSQL Cluster using Patroni and HAProxy
+
+Prerequisites:
+
+Three (or more) servers running Ubuntu 20.04 (or another compatible OS).
+PostgreSQL installed on all servers.
+Patroni installed on all servers.
+HAProxy installed on one server (this will be your load balancer).
+
+Step 1: Install PostgreSQL
+
+Install PostgreSQL on all servers. You can do this by running:
+
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+Step 2: Install Patroni
+
+You can install Patroni using pip:
+
+sudo apt install python3-pip
+sudo pip3 install patroni
+
+Step 3: Configure PostgreSQL and Patroni
+
+On each PostgreSQL server, you need to create a postgresql.conf and pg_hba.conf file.
+Also, create a patroni.yml file. Here's a sample patroni.yml configuration:
+
+scope: postgresql_cluster
+namespace: /db/
+name: pg-cluster-node1
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: 192.168.1.101:8008
+etcd:
+  host: 192.168.1.100:2379
+  protocol: http
+  ttl: 30
+  loop_wait: 10
+  retry_timeout: 10
+postgresql:
+  listen: 192.168.1.101:5432
+  connect_address: 192.168.1.101:5432
+  data_dir: /var/lib/postgresql/12/main
+  bin_dir: /usr/lib/postgresql/12/bin
+  maximum_lag_on_failover: 1048576
+  recovery_conf:
+    restore_command: cp /var/lib/postgresql/archive/%f %p
+    recovery_target_timeline: latest
+  parameters:
+    archive_mode: "on"
+    archive_command: "cp %p /var/lib/postgresql/archive/%f"
+    archive_timeout: 600
+    max_wal_senders: 5
+    wal_keep_segments: 8
+    hot_standby: "on"
+  pg_hba:
+  - host replication replicator 127.0.0.1/32 md5
+  - host replication replicator 192.168.1.0/24 md5
+  - host all all 0.0.0.0/0 md5
+  use_pg_rewind: true
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false
+
+Step 4: Install HAProxy
+
+Install HAProxy on your designated load balancer server:
+
+sudo apt install haproxy
+
+Step 5: Configure HAProxy
+
+Edit the HAProxy configuration file (/etc/haproxy/haproxy.cfg) and add the following configuration:
+
+frontend pg-cluster
+    bind *:5432
+    mode tcp
+    default_backend pg-cluster
+
+backend pg-cluster
+    mode tcp
+    balance roundrobin
+    server node1 192.168.1.101:5432 check
+    server node2 192.168.1.102:5432 check
+    server node3 192.168.1.103:5432 check
+
+Step 6: Start Patroni
+
+Start Patroni on each PostgreSQL server:
+
+patroni /path/to/patroni.yml
+
+Step 7: Start HAProxy
+
+Start HAProxy on your load balancer server:
+
+sudo systemctl start haproxy
+
+That's it! You now have a basic PostgreSQL cluster set up using Patroni and HAProxy. Ensure that you have adjusted IP addresses, ports, and other settings to match your environment.
